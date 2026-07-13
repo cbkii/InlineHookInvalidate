@@ -1,0 +1,7 @@
+com.obbedcode.inlineart.module-pngs-0 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\build\generated\res\pngs\release
+com.obbedcode.inlineart.module-resValues-1 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\build\generated\res\resValues\release
+com.obbedcode.inlineart.module-mergeReleaseResources-2 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\build\intermediates\incremental\release\mergeReleaseResources\merged.dir
+com.obbedcode.inlineart.module-mergeReleaseResources-3 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\build\intermediates\incremental\release\mergeReleaseResources\stripped.dir
+com.obbedcode.inlineart.module-release-4 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\build\intermediates\merged_res\release\mergeReleaseResources
+com.obbedcode.inlineart.module-main-5 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\src\main\res
+com.obbedcode.inlineart.module-release-6 H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\src\release\res

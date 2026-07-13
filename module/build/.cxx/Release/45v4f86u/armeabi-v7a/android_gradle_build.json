@@ -1,0 +1,67 @@
+{
+  "buildFiles": [
+    "H:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Android.mk",
+    "H:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Application.mk"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\Jake\\AppData\\Local\\Android\\Sdk\\ndk\\28.1.13356709\\ndk-build.cmd",
+      "NDK_PROJECT_PATH\u003dnull",
+      "APP_BUILD_SCRIPT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Android.mk",
+      "NDK_APPLICATION_MK\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Application.mk",
+      "APP_ABI\u003darmeabi-v7a",
+      "NDK_ALL_ABIS\u003darmeabi-v7a",
+      "NDK_DEBUG\u003d0",
+      "APP_PLATFORM\u003dandroid-26",
+      "NDK_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/obj",
+      "NDK_LIBS_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/lib",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\Jake\\AppData\\Local\\Android\\Sdk\\ndk\\28.1.13356709\\ndk-build.cmd",
+    "NDK_PROJECT_PATH\u003dnull",
+    "APP_BUILD_SCRIPT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Android.mk",
+    "NDK_APPLICATION_MK\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Application.mk",
+    "APP_ABI\u003darmeabi-v7a",
+    "NDK_ALL_ABIS\u003darmeabi-v7a",
+    "NDK_DEBUG\u003d0",
+    "APP_PLATFORM\u003dandroid-26",
+    "NDK_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/obj",
+    "NDK_LIBS_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/lib",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "inlinehookinvalidate-release-armeabi-v7a": {
+      "buildCommandComponents": [
+        "C:\\Users\\Jake\\AppData\\Local\\Android\\Sdk\\ndk\\28.1.13356709\\ndk-build.cmd",
+        "NDK_PROJECT_PATH\u003dnull",
+        "APP_BUILD_SCRIPT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Android.mk",
+        "NDK_APPLICATION_MK\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\jni\\Application.mk",
+        "APP_ABI\u003darmeabi-v7a",
+        "NDK_ALL_ABIS\u003darmeabi-v7a",
+        "NDK_DEBUG\u003d0",
+        "APP_PLATFORM\u003dandroid-26",
+        "NDK_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/obj",
+        "NDK_LIBS_OUT\u003dH:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/lib",
+        "H:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u/obj/local/armeabi-v7a/libinlinehookinvalidate.so"
+      ],
+      "toolchain": "toolchain-armeabi-v7a",
+      "abi": "armeabi-v7a",
+      "artifactName": "inlinehookinvalidate",
+      "output": "H:\\SPACE\\REVERSE\\StrongArtHook\\InlineHookInvalidate\\module\\build\\intermediates\\cxx\\Release\\45v4f86u\\obj\\local\\armeabi-v7a\\libinlinehookinvalidate.so"
+    }
+  },
+  "toolchains": {
+    "toolchain-armeabi-v7a": {
+      "cCompilerExecutable": "C:\\Users\\Jake\\AppData\\Local\\Android\\Sdk\\ndk\\28.1.13356709\\build\\..\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe",
+      "cppCompilerExecutable": "C:\\Users\\Jake\\AppData\\Local\\Android\\Sdk\\ndk\\28.1.13356709\\build\\..\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe"
+    }
+  },
+  "cFileExtensions": [
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

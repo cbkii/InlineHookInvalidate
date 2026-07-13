@@ -1,0 +1,2 @@
+H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\jni\Android.mk
+H:\SPACE\REVERSE\StrongArtHook\InlineHookInvalidate\module\jni\Application.mk

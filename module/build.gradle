@@ -1,0 +1,19 @@
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.obbedcode.inlineart.module'
+    compileSdk 34
+    ndkVersion '28.1.13356709'
+
+    defaultConfig {
+        minSdk 26
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path('jni/Android.mk')
+        }
+    }
+}

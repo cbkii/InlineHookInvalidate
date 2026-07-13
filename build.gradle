@@ -1,0 +1,49 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.10.1"
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+def moduleAbis = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+
+task prepareModuleZip(type: Sync) {
+    dependsOn ':module:assembleRelease', ':indexer:serviceApk'
+    def stagingDir = layout.buildDirectory.dir('moduleZip')
+    into(stagingDir)
+
+    from('module/template') {
+        exclude 'webroot'
+    }
+    from('module/template/webroot') {
+        into 'webroot'
+    }
+    moduleAbis.each { abi ->
+        from("module/build/intermediates/stripped_native_libs/release/stripReleaseDebugSymbols/out/lib/$abi") {
+            include '*.so'
+            into 'zygisk'
+            rename '.*\\.so', "${abi}.so"
+        }
+    }
+    from('indexer/build/outputs') {
+        include 'service.apk'
+    }
+}
+
+task assembleModuleZip(type: Zip) {
+    dependsOn prepareModuleZip
+    archiveFileName.set('InlineHookInvalidate.zip')
+    destinationDirectory.set(layout.projectDirectory.dir('release'))
+    from layout.buildDirectory.dir('moduleZip')
+}

@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def sdkDir = localProperties.getProperty('sdk.dir') ?: System.getenv('ANDROID_HOME')
+def androidJar = file("$sdkDir/platforms/android-34/android.jar")
+def buildToolsDir = file("$sdkDir/build-tools/34.0.0")
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+dependencies {
+    compileOnly files(androidJar)
+}
+
+tasks.register('dex', Exec) {
+    dependsOn tasks.named('classes')
+    def outputDir = layout.buildDirectory.dir('dex').get().asFile
+    doFirst { outputDir.mkdirs() }
+    workingDir = outputDir
+    commandLine "$buildToolsDir/d8.bat",
+        '--output', outputDir.absolutePath,
+        '--min-api', '26',
+        "${layout.buildDirectory.dir('classes/java/main').get().asFile}/com/obbedcode/inlinehookinvalidate/pm/AppIndexer.class"
+}
+
+tasks.register('serviceApk', Zip) {
+    dependsOn tasks.named('dex')
+    archiveFileName.set('service.apk')
+    destinationDirectory.set(layout.buildDirectory.dir('outputs'))
+    from(layout.buildDirectory.dir('dex')) {
+        include 'classes.dex'
+    }
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('serviceApk')
+}

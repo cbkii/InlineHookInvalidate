@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Inline Hook Invalidate</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root">
+<header class="app-bar">
+    <div class="app-bar-row">
+        <div class="app-bar-title">
+            <h1>Inline Hook Invalidate</h1>
+            <span class="app-bar-subtitle" id="statusSubtitle">Disabled</span>
+        </div>
+        <div class="app-bar-actions">
+            <button id="settingsButton" class="icon-button" title="Settings">
+                <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94 7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7 7 0 0 0-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.74 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.49 7.49 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.39-.96a7 7 0 0 0 1.62.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+            </button>
+            <button id="refreshButton" class="icon-button" title="Reload">
+                <svg viewBox="0 0 24 24"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></svg>
+            </button>
+        </div>
+    </div>
+    <div class="search-field">
+        <svg class="search-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 5 1.49-1.5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+        <input id="searchInput" type="search" placeholder="Search apps" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
+</header>
+
+<main id="scroller">
+    <div id="appList" class="app-list"></div>
+    <div id="emptyState" class="empty-state hidden">
+        <p id="emptyStateText">Loading installed apps…</p>
+    </div>
+</main>
+</div>
+
+<div id="scrollFabs" class="scroll-fabs">
+    <button id="scrollTopFab" class="scroll-fab" type="button" title="Scroll to top">
+        <svg viewBox="0 0 24 24"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+    </button>
+    <button id="scrollBottomFab" class="scroll-fab" type="button" title="Scroll to bottom">
+        <svg viewBox="0 0 24 24"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+    </button>
+</div>
+
+<div id="settingsOverlay" class="overlay hidden">
+    <div class="dialog">
+        <h2 class="dialog-title">Settings</h2>
+        <label class="dialog-toggle">
+            <input id="settingsEnabledToggle" type="checkbox">
+            <span>Enabled</span>
+        </label>
+        <label class="dialog-field">
+            <span>Target library name</span>
+            <div class="text-field"><input id="settingsLibraryInput" class="value-input" type="text" placeholder="libart.so" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+        </label>
+        <div class="dialog-actions">
+            <button id="settingsCancel" class="text-button" type="button">Cancel</button>
+            <button id="settingsSave" class="filled-button" type="button">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="snackbar hidden"></div>
+
+<template id="appCardTemplate">
+    <section class="app-card">
+        <button class="app-card-head" type="button">
+            <span class="app-icon"></span>
+            <span class="app-identity">
+                <span class="app-name"></span>
+                <span class="app-meta"></span>
+            </span>
+            <label class="switch card-switch">
+                <input type="checkbox" class="target-toggle">
+                <span class="slider"></span>
+            </label>
+        </button>
+    </section>
+</template>
+
+<script src="fastscroll.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
