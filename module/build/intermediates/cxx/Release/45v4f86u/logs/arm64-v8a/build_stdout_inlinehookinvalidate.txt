@@ -1,2 +1,0 @@
-[arm64-v8a] Compile++      : inlinehookinvalidate <= main.cpp
-[arm64-v8a] SharedLibrary  : libinlinehookinvalidate.so

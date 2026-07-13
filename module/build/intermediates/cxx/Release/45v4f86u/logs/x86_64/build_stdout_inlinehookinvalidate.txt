@@ -1,2 +1,0 @@
-[x86_64] Compile++      : inlinehookinvalidate <= main.cpp
-[x86_64] SharedLibrary  : libinlinehookinvalidate.so

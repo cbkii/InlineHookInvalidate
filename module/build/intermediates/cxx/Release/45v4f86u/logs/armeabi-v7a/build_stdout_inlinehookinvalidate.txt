@@ -1,2 +1,0 @@
-[armeabi-v7a] Compile++ thumb: inlinehookinvalidate <= main.cpp
-[armeabi-v7a] SharedLibrary  : libinlinehookinvalidate.so
