@@ -60,8 +60,9 @@
         <div class="dialog-field">
             <span>Remap method</span>
             <div class="segmented" id="settingsMethodSegment">
-                <button type="button" class="segment" data-method="mmap">mmap</button>
-                <button type="button" class="segment" data-method="pread">mprotect + pread</button>
+                <button type="button" class="segment" data-method="mmap-once">One-shot mmap</button>
+                <button type="button" class="segment" data-method="mmap">Continuous mmap</button>
+                <button type="button" class="segment" data-method="pread">Legacy pread</button>
             </div>
         </div>
         <div class="dialog-actions">

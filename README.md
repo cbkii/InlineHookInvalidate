@@ -1,5 +1,27 @@
 # Invalidate Inline Hooks
 
+## Fork build v1.1-alpha1
+
+The module asks the Zygisk provider to unload its library for processes it
+skips, including system_server, child zygotes, denylisted processes and
+non-matching process names. Configuration is root-owned and saved atomically.
+Settings apply when a process starts.
+
+| Mode | Behaviour |
+| --- | --- |
+| One-shot mmap | Runs once after app specialisation, then requests module unload. Fresh installs default to this mode with remapping disabled. |
+| Continuous mmap | Keeps the legacy worker and checks the remapped code every 100 ms. An existing config with no method field retains this mode. |
+| Legacy pread | Keeps the legacy write-and-restore mode for existing configurations. |
+
+An update preserves the configured targets and mode. For an existing install,
+select **One-shot mmap** in the WebUI and restart the target to try it. A process
+suffix such as `:remote` must be listed explicitly. One-shot cannot restore
+patches applied after its callback, and the provider must honour the unload
+request. Remapping executable ART pages remains experimental. Record the same
+process before and after switching modes, check its functionality, and compare
+its executable mappings and `InlineHookInvalidate` log entries. A mapping can
+also belong to the provider or another module.
+
 Hello, it's **ObbedCode** here with some cool stuff.
 
 I was bored, so I quickly whipped up a couple of projects in my spare time on my relax day. Took about 10 minutes, nothing crazy. This is the same thing LSPosed has in their system under **Settings -> "Invalidate inline Hooks"**.

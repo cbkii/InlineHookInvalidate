@@ -4,10 +4,11 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <fstream>
 #include <link.h>
+#include <sstream>
 #include <string>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -16,13 +17,14 @@
 #include "zygisk.hpp"
 
 namespace {
-//TODO: just use LOG Macros 
 constexpr char kLogTag[] = "InlineHookInvalidate";
 constexpr char kConfigPath[] = "/data/adb/modules/inline_hook_invalidate/config.txt";
 constexpr char kDefaultLibraryName[] = "libart.so";
+constexpr std::size_t kMaxConfigBytes = 64 * 1024;
 
 enum class RemapMethod {
     Mmap,
+    MmapOnce,
     MprotectPread
 };
 
@@ -56,11 +58,10 @@ std::vector<std::string> splitOnColon(const std::string &value) {
     return parts;
 }
 
-bool readModuleConfiguration(ModuleConfiguration *configuration) {
-    std::ifstream configurationFile(kConfigPath);
-    if (!configurationFile.is_open())
+bool parseModuleConfiguration(const std::string &contents, ModuleConfiguration *configuration) {
+    if (contents.find('\0') != std::string::npos)
         return false;
-
+    std::istringstream configurationFile(contents);
     std::string firstLine;
     if (!std::getline(configurationFile, firstLine))
         return false;
@@ -68,10 +69,19 @@ bool readModuleConfiguration(ModuleConfiguration *configuration) {
     firstLine = trimLineEnding(firstLine);
 
     std::vector<std::string> headerParts = splitOnColon(firstLine);
-    if (!headerParts.empty())                                   configuration->enabled = headerParts[0] == "1";
-    if (headerParts.size() >= 2 && !headerParts[1].empty())     configuration->libraryName = headerParts[1];
-    if (headerParts.size() >= 3 && headerParts[2] == "pread")   configuration->method = RemapMethod::MprotectPread;
-
+    if (headerParts.size() > 3 || (headerParts[0] != "0" && headerParts[0] != "1"))
+        return false;
+    configuration->enabled = headerParts[0] == "1";
+    if (headerParts.size() >= 2 && !headerParts[1].empty())
+        configuration->libraryName = headerParts[1];
+    if (headerParts.size() == 3) {
+        if (headerParts[2] == "mmap-once")
+            configuration->method = RemapMethod::MmapOnce;
+        else if (headerParts[2] == "pread")
+            configuration->method = RemapMethod::MprotectPread;
+        else if (!headerParts[2].empty() && headerParts[2] != "mmap")
+            return false;
+    }
 
     std::string packageLine;
     while (std::getline(configurationFile, packageLine)) {
@@ -81,6 +91,35 @@ bool readModuleConfiguration(ModuleConfiguration *configuration) {
         }
     }
     return true;
+}
+
+bool readModuleConfiguration(zygisk::Api *api, ModuleConfiguration *configuration) {
+    const int flags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK;
+    const int directory = api->getModuleDir();
+    const int fd = directory < 0 ? open(kConfigPath, flags) : openat(directory, "config.txt", flags);
+    if (directory >= 0)
+        close(directory);
+    if (fd < 0)
+        return false;
+
+    struct stat info{};
+    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != 0 ||
+        (info.st_mode & (S_IWGRP | S_IWOTH)) != 0 || info.st_size < 0 ||
+        static_cast<std::uintmax_t>(info.st_size) > kMaxConfigBytes) {
+        close(fd);
+        return false;
+    }
+
+    std::string contents;
+    char buffer[1024];
+    ssize_t count;
+    do {
+        count = read(fd, buffer, sizeof(buffer));
+        if (count > 0)
+            contents.append(buffer, static_cast<std::size_t>(count));
+    } while ((count > 0 || (count < 0 && errno == EINTR)) && contents.size() <= kMaxConfigBytes);
+    close(fd);
+    return count == 0 && parseModuleConfiguration(contents, configuration);
 }
 
 bool targetListContainsProcess(const std::vector<std::string> &targetPackages, const std::string &processName) {
@@ -163,33 +202,52 @@ bool remapSegmentFromDisk(int fileDescriptor, const ExecutableSegment &segment, 
     return bytesRead == static_cast<ssize_t>(segment.length);
 }
 
-void runContinuousRemapLoop(std::string libraryName, bool useMmap) {
+void runRemap(const std::string &libraryName, RemapMethod method) {
     LocatedLibrary library = locateExecutableSegments(libraryName);
     if (!library.found) {
         __android_log_print(ANDROID_LOG_WARN, kLogTag, "could not locate executable segments of %s", libraryName.c_str());
         return;
     }
 
-    int fileDescriptor = open(library.realPath.c_str(), O_RDONLY);
+    const int fileDescriptor = open(library.realPath.c_str(), O_RDONLY | O_CLOEXEC);
     if (fileDescriptor < 0) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "open failed for %s: %s", library.realPath.c_str(), strerror(errno));
         return;
     }
 
     const std::int64_t pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize <= 0 || (pageSize & (pageSize - 1)) != 0) {
+        close(fileDescriptor);
+        return;
+    }
+    const bool once = method == RemapMethod::MmapOnce;
+    const bool useMmap = method != RemapMethod::MprotectPread;
+    std::vector<ExecutableSegment> monitored;
     std::int32_t initialRemapCount = 0;
     for (ExecutableSegment &segment : library.segments) {
         if (remapSegmentFromDisk(fileDescriptor, segment, pageSize, useMmap)) {
-            segment.expectedChecksum = computeFnv1aChecksum(reinterpret_cast<const void *>(segment.liveAddress), segment.length);
             initialRemapCount++;
+            if (!once) {
+                segment.expectedChecksum = computeFnv1aChecksum(reinterpret_cast<const void *>(segment.liveAddress), segment.length);
+                monitored.push_back(segment);
+            }
         }
+    }
+
+    if (once || monitored.empty()) {
+        close(fileDescriptor);
+        if (initialRemapCount == 0)
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "no executable segments remapped for %s", libraryName.c_str());
+        else
+            __android_log_print(ANDROID_LOG_DEBUG, kLogTag, "one-shot mmap completed for %s (%d segments)", libraryName.c_str(), initialRemapCount);
+        return;
     }
 
     __android_log_print(ANDROID_LOG_INFO, kLogTag, "remapped %d executable segment(s) of %s from %s using %s, now monitoring continuously", initialRemapCount, libraryName.c_str(), library.realPath.c_str(), useMmap ? "mmap" : "mprotect+pread");
     constexpr std::chrono::milliseconds kPollInterval{100};
     while (true) {
         std::this_thread::sleep_for(kPollInterval);
-        for (ExecutableSegment &segment : library.segments) {
+        for (ExecutableSegment &segment : monitored) {
             std::uint32_t liveChecksum = computeFnv1aChecksum(reinterpret_cast<const void *>(segment.liveAddress), segment.length);
             if (liveChecksum == segment.expectedChecksum) {
                 continue;
@@ -203,8 +261,6 @@ void runContinuousRemapLoop(std::string libraryName, bool useMmap) {
     }
 }
 
-}
-
 class InlineHookInvalidate : public zygisk::ModuleBase {
 public:
     void onLoad(zygisk::Api *moduleApi, JNIEnv *moduleEnvironment) override {
@@ -212,35 +268,59 @@ public:
         environment = moduleEnvironment;
     }
 
-    void preAppSpecialize(zygisk::AppSpecializeArgs *) override {
-        haveConfiguration = readModuleConfiguration(&cachedConfiguration);
+    void preServerSpecialize(zygisk::ServerSpecializeArgs *) override {
+        api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+    }
+
+    void preAppSpecialize(zygisk::AppSpecializeArgs *arguments) override {
+        selected = false;
+        configuration = {};
+        if (!shouldRun(arguments) || !readModuleConfiguration(api, &configuration) ||
+            !configuration.enabled || !isSelected(arguments->nice_name)) {
+            api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
+        selected = true;
     }
 
     void postAppSpecialize(const zygisk::AppSpecializeArgs *arguments) override {
-        if (!haveConfiguration || !cachedConfiguration.enabled)
+        if (!selected)
             return;
-        if (arguments->nice_name == nullptr)
+        if (arguments->nice_name == nullptr || !isSelected(arguments->nice_name)) {
+            api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
-
-        const char *processNameCharacters = environment->GetStringUTFChars(arguments->nice_name, nullptr);
-        if (processNameCharacters == nullptr)
-            return;
-
-        std::string processName(processNameCharacters);
-        environment->ReleaseStringUTFChars(arguments->nice_name, processNameCharacters);
-
-        if (targetListContainsProcess(cachedConfiguration.targetPackages, processName)) {
-            bool useMmap = cachedConfiguration.method == RemapMethod::Mmap;
-            std::thread remapThread(runContinuousRemapLoop, cachedConfiguration.libraryName, useMmap);
-            remapThread.detach();
         }
+        if (configuration.method == RemapMethod::MmapOnce) {
+            runRemap(configuration.libraryName, configuration.method);
+            api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+            return;
+        }
+        std::thread(runRemap, configuration.libraryName, configuration.method).detach();
     }
 
 private:
+    bool shouldRun(const zygisk::AppSpecializeArgs *arguments) const {
+        return arguments->nice_name != nullptr &&
+               !(arguments->is_child_zygote && *arguments->is_child_zygote) &&
+               !(api->getFlags() & zygisk::PROCESS_ON_DENYLIST);
+    }
+
+    bool isSelected(jstring niceName) const {
+        const char *processNameCharacters = environment->GetStringUTFChars(niceName, nullptr);
+        if (processNameCharacters == nullptr)
+            return false;
+
+        const bool match = targetListContainsProcess(configuration.targetPackages, processNameCharacters);
+        environment->ReleaseStringUTFChars(niceName, processNameCharacters);
+        return match;
+    }
+
     zygisk::Api *api = nullptr;
     JNIEnv *environment = nullptr;
-    bool haveConfiguration = false;
-    ModuleConfiguration cachedConfiguration;
+    bool selected = false;
+    ModuleConfiguration configuration;
 };
+
+}
 
 REGISTER_ZYGISK_MODULE(InlineHookInvalidate)

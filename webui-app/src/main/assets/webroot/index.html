@@ -57,6 +57,14 @@
             <span>Target library name</span>
             <div class="text-field"><input id="settingsLibraryInput" class="value-input" type="text" placeholder="libart.so" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
         </label>
+        <div class="dialog-field">
+            <span>Remap method</span>
+            <div class="segmented" id="settingsMethodSegment">
+                <button type="button" class="segment" data-method="mmap-once">One-shot mmap</button>
+                <button type="button" class="segment" data-method="mmap">Continuous mmap</button>
+                <button type="button" class="segment" data-method="pread">Legacy pread</button>
+            </div>
+        </div>
         <div class="dialog-actions">
             <button id="settingsCancel" class="text-button" type="button">Cancel</button>
             <button id="settingsSave" class="filled-button" type="button">Save</button>

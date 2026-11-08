@@ -346,6 +346,30 @@ body {
     padding: 12px 0;
 }
 
+.segmented {
+    display: flex;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    gap: 4px;
+}
+
+.segment {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--on-surface-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segment.is-active { background: var(--accent); color: var(--accent-on); }
+
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 button.filled-button, button.text-button {

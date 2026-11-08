@@ -8,6 +8,7 @@ const DEFAULT_LIBRARY_NAME = "libart.so";
 const PROTECTED_PACKAGES = ["com.obbedcode.inlinehookinvalidate", "com.obbedcode.inlinehookinvalidate.webui"];
 
 let callbackSequence = 0;
+let pendingConfigWrite = Promise.resolve();
 
 function moduleDir() {
     try {
@@ -55,9 +56,12 @@ function toast(message) {
     }, 2200);
 }
 
+const DEFAULT_METHOD = "mmap-once";
+
 const state = {
     enabled: false,
     libraryName: DEFAULT_LIBRARY_NAME,
+    method: DEFAULT_METHOD,
     targetPackages: new Set(),
     apps: [],
     search: ""
@@ -65,15 +69,13 @@ const state = {
 
 function parseConfig(text) {
     const lines = (text || "").split("\n").map((line) => line.replace(/\r$/, ""));
-    const result = { enabled: false, libraryName: DEFAULT_LIBRARY_NAME, targetPackages: new Set() };
+    const result = { enabled: false, libraryName: DEFAULT_LIBRARY_NAME, method: DEFAULT_METHOD, targetPackages: new Set() };
     if (lines.length > 0 && lines[0].trim().length > 0) {
-        const separatorIndex = lines[0].indexOf(":");
-        const enabledToken = separatorIndex === -1 ? lines[0] : lines[0].slice(0, separatorIndex);
-        result.enabled = enabledToken.trim() === "1";
-        if (separatorIndex !== -1) {
-            const libraryToken = lines[0].slice(separatorIndex + 1).trim();
-            if (libraryToken) result.libraryName = libraryToken;
-        }
+        const parts = lines[0].split(":");
+        result.enabled = (parts[0] || "").trim() === "1";
+        if (parts.length >= 2 && parts[1].trim()) result.libraryName = parts[1].trim();
+        const savedMethod = parts[2] || "mmap";
+        if (["mmap", "mmap-once", "pread"].includes(savedMethod)) result.method = savedMethod;
     }
     for (let index = 1; index < lines.length; index++) {
         const packageName = lines[index].trim();
@@ -83,15 +85,24 @@ function parseConfig(text) {
 }
 
 function serializeConfig() {
-    const lines = [(state.enabled ? "1" : "0") + ":" + state.libraryName];
+    const lines = [(state.enabled ? "1" : "0") + ":" + state.libraryName + ":" + state.method];
     for (const packageName of state.targetPackages) lines.push(packageName);
     return lines.join("\n") + "\n";
 }
 
+function setActiveMethodSegment(method) {
+    const segments = document.querySelectorAll("#settingsMethodSegment .segment");
+    segments.forEach((segment) => segment.classList.toggle("is-active", segment.dataset.method === method));
+}
+
 async function persistConfig() {
     const encoded = btoa(serializeConfig());
-    const command = "mkdir -p " + CONFIG_DIR + " && printf '%s' '" + encoded + "' | base64 -d > " + CONFIG_FILE;
-    const result = await exec(command);
+    const command = "umask 077; tmp=$(mktemp " + CONFIG_DIR + "/.config.XXXXXX) || exit 1; "
+        + "trap 'rm -f \"$tmp\"' EXIT; "
+        + "printf '%s' '" + encoded + "' | base64 -d > \"$tmp\" && mv -f \"$tmp\" " + CONFIG_FILE;
+    const write = pendingConfigWrite.then(() => exec(command));
+    pendingConfigWrite = write.catch(() => {});
+    const result = await write;
     if (result.errno !== 0) {
         toast("Failed to write config: " + (result.stderr || "errno " + result.errno));
         return false;
@@ -103,7 +114,7 @@ function updateStatusSubtitle() {
     const subtitle = document.getElementById("statusSubtitle");
     subtitle.classList.toggle("is-enabled", state.enabled);
     subtitle.textContent = state.enabled
-        ? "Enabled · " + state.libraryName + " · " + state.targetPackages.size + " target(s)"
+        ? "Enabled · " + state.libraryName + " · " + state.method + " · " + state.targetPackages.size + " target(s)"
         : "Disabled";
 }
 
@@ -141,6 +152,7 @@ async function loadEverything(forceReindex) {
     const parsed = parseConfig(configResult.stdout);
     state.enabled = parsed.enabled;
     state.libraryName = parsed.libraryName;
+    state.method = parsed.method;
     state.targetPackages = parsed.targetPackages;
 
     state.apps = index
@@ -154,6 +166,7 @@ async function loadEverything(forceReindex) {
 
     document.getElementById("settingsEnabledToggle").checked = state.enabled;
     document.getElementById("settingsLibraryInput").value = state.libraryName;
+    setActiveMethodSegment(state.method);
     updateStatusSubtitle();
     render();
 }
@@ -254,6 +267,7 @@ function render() {
 function openSettings() {
     document.getElementById("settingsEnabledToggle").checked = state.enabled;
     document.getElementById("settingsLibraryInput").value = state.libraryName;
+    setActiveMethodSegment(state.method);
     document.getElementById("settingsOverlay").classList.remove("hidden");
 }
 
@@ -262,9 +276,15 @@ function closeSettings() {
 }
 
 async function saveSettings() {
-    state.enabled = document.getElementById("settingsEnabledToggle").checked;
     const libraryValue = document.getElementById("settingsLibraryInput").value.trim();
+    if (libraryValue && !/^[A-Za-z0-9_.+-]+$/.test(libraryValue)) {
+        toast("Enter a library basename such as libart.so");
+        return;
+    }
+    state.enabled = document.getElementById("settingsEnabledToggle").checked;
     state.libraryName = libraryValue || DEFAULT_LIBRARY_NAME;
+    const activeSegment = document.querySelector("#settingsMethodSegment .segment.is-active");
+    state.method = activeSegment ? activeSegment.dataset.method : DEFAULT_METHOD;
     updateStatusSubtitle();
     closeSettings();
     if (await persistConfig()) toast("Settings saved");
@@ -289,6 +309,9 @@ function bindControls() {
     document.getElementById("settingsButton").addEventListener("click", openSettings);
     document.getElementById("settingsCancel").addEventListener("click", closeSettings);
     document.getElementById("settingsSave").addEventListener("click", saveSettings);
+    document.querySelectorAll("#settingsMethodSegment .segment").forEach((segment) => {
+        segment.addEventListener("click", () => setActiveMethodSegment(segment.dataset.method));
+    });
     document.getElementById("settingsOverlay").addEventListener("click", (event) => {
         if (event.target.id === "settingsOverlay") closeSettings();
     });
