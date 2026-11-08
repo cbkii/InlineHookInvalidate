@@ -1,0 +1,75 @@
+name: Publish tested prerelease
+
+on:
+  push:
+    branches: [codex/publish-v1.1-alpha1]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_REPO: ${{ github.repository }}
+      TAG: 'v1.1-alpha1'
+      SOURCE_SHA: 'c200727a2b7c1b9ed62ad312a2ca8ed083f7ff67'
+      BUILD_RUN: '42473970068'
+      ARTIFACT: 'InlineHookInvalidate-738ce2f896819cadd9aa3d2303bd143734747fe2'
+      INPUT_ZIP: 'InlineHookInvalidate.zip'
+      RELEASE_ZIP: 'InlineHookInvalidate-v1.1-alpha1.zip'
+      ZIP_SHA256: 'f1d3025535be32ce6a37acfd0a281ef58e33e96721a69c342b6b59f3af139e57'
+    steps:
+      - name: Verify and publish the tested module ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::The release or tag already exists"
+            exit 1
+          fi
+
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" |
+            jq -e --arg sha "$SOURCE_SHA" '.head_sha == $sha and .conclusion == "success"' >/dev/null
+          gh run download "$BUILD_RUN" --name "$ARTIFACT" --dir "$RUNNER_TEMP/candidate"
+          cd "$RUNNER_TEMP/candidate"
+          printf '%s  %s\n' "$ZIP_SHA256" "$INPUT_ZIP" | sha256sum -c -
+          unzip -tq "$INPUT_ZIP"
+          unzip -p "$INPUT_ZIP" module.prop > module.prop
+          grep -Fx 'id=inline_hook_invalidate' module.prop
+          grep -Fx 'version=v1.1-alpha1' module.prop
+          grep -Fx 'versionCode=2' module.prop
+          if [[ "$INPUT_ZIP" != "$RELEASE_ZIP" ]]; then
+            mv -- "$INPUT_ZIP" "$RELEASE_ZIP"
+          fi
+          sha256sum "$RELEASE_ZIP" > SHA256SUMS
+
+          cat > notes.md <<'EOF'
+          Requests unload in skipped processes and adds one-shot mmap for selected apps.
+          Existing configurations retain their mode. Use the WebUI to switch a target to one-shot.
+
+          This is a manual-install alpha. CI validated the ZIP. Runtime qualification on the Pixel 9a is pending.
+          Install the module ZIP through your root manager and reboot. To roll back, disable the module and reboot.
+
+          Source: [`c200727`](https://github.com/cbkii/InlineHookInvalidate/commit/c200727a2b7c1b9ed62ad312a2ca8ed083f7ff67) · [Build and checks](https://github.com/cbkii/InlineHookInvalidate/actions/runs/42473970068)
+          EOF
+          gh release create "$TAG" "$RELEASE_ZIP" SHA256SUMS --target "$SOURCE_SHA" \
+            --title 'Inline Hook Invalidate v1.1-alpha1' --notes-file notes.md --draft --prerelease --latest=false
+          gh release view "$TAG" --json isDraft,isPrerelease,targetCommitish,assets |
+            jq -e --arg sha "$SOURCE_SHA" --arg zip "$RELEASE_ZIP" '
+              .isDraft and .isPrerelease and .targetCommitish == $sha and
+              ([.assets[].name] | sort) == ([$zip, "SHA256SUMS"] | sort)
+            ' >/dev/null
+          gh release download "$TAG" --dir "$RUNNER_TEMP/draft-check"
+          (cd "$RUNNER_TEMP/draft-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/draft-check/SHA256SUMS"
+
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' | grep -Fx "$SOURCE_SHA"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/release-check"
+          (cd "$RUNNER_TEMP/release-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/release-check/SHA256SUMS"
