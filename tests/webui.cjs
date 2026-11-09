@@ -17,4 +17,11 @@ vm.runInNewContext(source.replace(/bindControls\(\);\s*loadEverything\(false\);\
     assert.equal(restored.processModes.get("com.example"), "mmap");
     assert.equal(restored.processModes.has("com.example:remote"), false);
     assert.equal(restored.targetPackages.size, 2);
+    const exact = parseConfig("1:libart.so\\n com.example \\n");
+    assert.equal(exact.targetPackages.has("com.example"), false);
+    assert.equal(exact.targetPackages.has(" com.example "), true);
+    assert.throws(() => parseConfig(""), /Invalid config header/);
+    assert.throws(() => parseConfig("1:libart.so:unknown"), /Invalid config header/);
+    assert.throws(() => parseConfig("1:libart.so\\n@mode com.example mmap\\n@mode com.example pread"), /Invalid or duplicate/);
+
 `, {assert});

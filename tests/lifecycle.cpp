@@ -134,6 +134,31 @@ int main() {
     fakeLibrary.dlpi_phnum = 1;
     runApp("com.example", true);
     assert(*page == 'A');
+
+    const int sourceFd = open(path.c_str(), O_RDONLY);
+    struct stat source{};
+    assert(sourceFd >= 0 && fstat(sourceFd, &source) == 0);
+    ExecutableSegment segment{reinterpret_cast<std::uintptr_t>(page), 0, pageSize};
+    assert(pageRange(segment, pageSize, source));
+    auto shortSource = source;
+    shortSource.st_size--;
+    assert(!pageRange(segment, pageSize, shortSource));
+    auto unaligned = segment;
+    unaligned.fileOffset = 1;
+    unaligned.length--;
+    assert(!pageRange(unaligned, pageSize, source));
+    auto otherSource = source;
+    otherSource.st_ino++;
+    assert(mprotect(page, pageSize, PROT_READ | PROT_WRITE) == 0);
+    *page = 'C';
+    assert(mprotect(page, pageSize, PROT_READ | PROT_EXEC) == 0);
+    assert(!restoreSegment(sourceFd, segment, pageSize, otherSource, true, true));
+    assert(*page == 'C');
+    assert(restoreSegment(sourceFd, segment, pageSize, source, false, true));
+    assert(*page == 'A');
+    assert(matchesSourceMapping(*pageRange(segment, pageSize, source), source));
+    assert(segment.expectedChecksum == computeFnv1aChecksum(fileBytes.data(), pageSize));
+    assert(close(sourceFd) == 0);
     assert(munmap(page, pageSize) == 0 && unlink(path.c_str()) == 0);
 
     unloadRequests = 0;

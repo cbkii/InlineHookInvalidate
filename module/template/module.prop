@@ -1,6 +1,6 @@
 id=inline_hook_invalidate
 name=Inline Hook Invalidate
-version=v1.1-alpha2
-versionCode=3
+version=v1.1-alpha3
+versionCode=4
 author=ObbedCode
-description=Hide Libart.so Modifications
+description=Restore executable runtime pages for selected processes
