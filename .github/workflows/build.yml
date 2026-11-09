@@ -25,6 +25,27 @@ jobs:
           packages: platform-tools
       - name: Install pinned Android build components
         run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.1.13356709'
+      - name: Bootstrap the verified Gradle distribution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if timeout 90 sh gradlew --version; then
+            exit 0
+          fi
+          echo 'Gradle wrapper download failed; trying the upstream release asset API.'
+          properties=gradle/wrapper/gradle-wrapper.properties
+          name=$(sed -n 's|^distributionUrl=.*/\(gradle-[^/]*-bin\.zip\)$|\1|p' "$properties")
+          test -n "$name"
+          version=${name#gradle-}
+          version=${version%-bin.zip}
+          id=$(timeout 30 gh api "repos/gradle/gradle-distributions/releases/tags/v$version" |
+            jq -er --arg name "$name" '.assets[] | select(.name == $name) | .id')
+          archive="$RUNNER_TEMP/$name"
+          timeout 120 gh api "repos/gradle/gradle-distributions/releases/assets/$id" \
+            -H 'Accept: application/octet-stream' > "$archive"
+          expected=$(sed -n 's/^distributionSha256Sum=//p' "$properties")
+          printf '%s  %s\n' "$expected" "$archive" | sha256sum -c -
+          sed -i "s|^distributionUrl=.*|distributionUrl=file://$archive|" "$properties"
       - name: Build Android module ZIP
         run: sh gradlew assembleModuleZip :webui-app:assembleDebug
       - name: Verify installable files
