@@ -7,7 +7,7 @@ again while an app runs. The WebUI lets you set a default mode and choose a
 different mode for each selected app. The module asks the Zygisk loader to
 unload it when a process does not need it or after a one-shot run.
 
-## Fork build v1.1-alpha3
+## Fork build v1.1.0
 
 The module asks the Zygisk provider to unload its library for processes it
 skips, including system_server, child zygotes, denylisted processes and

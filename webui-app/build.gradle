@@ -10,8 +10,8 @@ android {
         applicationId 'com.obbedcode.inlinehookinvalidate.webui'
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName '1.1-alpha3'
+        versionCode 5
+        versionName '1.1.0'
     }
 
     compileOptions {
