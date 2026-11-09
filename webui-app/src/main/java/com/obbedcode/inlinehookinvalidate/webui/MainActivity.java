@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -11,14 +12,21 @@ import android.webkit.WebViewClient;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Collections;
+import java.util.regex.Pattern;
 
 public final class MainActivity extends Activity {
 
     private static final String MODULE_DIR = "/data/adb/modules/inline_hook_invalidate";
+
+    private static final String ASSET_BASE = "file:///android_asset/webroot/";
+    private static final Pattern CALLBACK = Pattern.compile("__iahs_cb_[0-9]+");
 
     private WebView webView;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -35,6 +43,7 @@ public final class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(false);
+        settings.setBlockNetworkLoads(true);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
@@ -43,7 +52,18 @@ public final class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                return !(url.startsWith("file:///android_asset/webroot/") || url.startsWith(localBase()));
+                return !(url.equals(ASSET_BASE + "index.html") || url.equals(localBase() + "index.html"));
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                for (String file : new String[]{"index.html", "app.js", "fastscroll.js", "style.css"}) {
+                    if (url.equals(ASSET_BASE + file) || url.equals(localBase() + file)) return null;
+                }
+                if (!request.isForMainFrame() && url.startsWith("data:image/webp;base64,")) return null;
+                return new WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden",
+                    Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
             }
         });
 
@@ -68,7 +88,7 @@ public final class MainActivity extends Activity {
 
             String target = synced && new File(destination, "index.html").exists()
                 ? localBase() + "index.html"
-                : "file:///android_asset/webroot/index.html";
+                : ASSET_BASE + "index.html";
 
             webView.post(() -> webView.loadUrl(target));
         });
@@ -92,15 +112,23 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private static RootResult runRoot(String command) {
+    private RootResult runRoot(String command) {
+        File errorFile = null;
+        Process process = null;
         try {
-            Process process = new ProcessBuilder("su", "-c", command).redirectErrorStream(false).start();
+            errorFile = File.createTempFile("root-err-", ".txt", getCacheDir());
+            process = new ProcessBuilder("su", "-c", command).redirectError(errorFile).start();
             String stdout = readAll(process.getInputStream());
-            String stderr = readAll(process.getErrorStream());
             int exitCode = process.waitFor();
-            return new RootResult(exitCode, stdout, stderr);
-        } catch (Throwable error) {
+            return new RootResult(exitCode, stdout, readAll(new FileInputStream(errorFile)));
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return new RootResult(-1, "", "Root command interrupted");
+        } catch (Exception error) {
             return new RootResult(-1, "", error.getMessage() == null ? "root unavailable" : error.getMessage());
+        } finally {
+            if (process != null) process.destroy();
+            if (errorFile != null) errorFile.delete();
         }
     }
 
@@ -135,6 +163,7 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface
         public void exec(String command, String optionsJson, String callbackName) {
+            if (callbackName == null || !CALLBACK.matcher(callbackName).matches()) return;
             executor.execute(() -> {
                 RootResult result = runRoot(command);
                 String script = "if(window['" + callbackName + "'])window['" + callbackName + "']("

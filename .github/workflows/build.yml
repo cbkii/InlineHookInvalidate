@@ -1,0 +1,45 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check scope and lifecycle
+        run: sh tests/run.sh
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned Android build components
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.1.13356709'
+      - name: Build Android module ZIP
+        run: sh gradlew assembleModuleZip :webui-app:assembleDebug
+      - name: Verify installable files
+        run: |
+          zip=release/InlineHookInvalidate.zip
+          unzip -t "$zip"
+          for file in module.prop customize.sh zygisk/arm64-v8a.so zygisk/armeabi-v7a.so zygisk/x86.so zygisk/x86_64.so service.apk webroot/app.js META-INF/com/google/android/update-binary; do
+            unzip -p "$zip" "$file" > "$RUNNER_TEMP/ihi-member"
+            test -s "$RUNNER_TEMP/ihi-member"
+          done
+          sha256sum "$zip" > release/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InlineHookInvalidate-${{ github.sha }}
+          path: |
+            release/InlineHookInvalidate.zip
+            release/SHA256SUMS
+          if-no-files-found: error

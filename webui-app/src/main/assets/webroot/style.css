@@ -155,6 +155,24 @@ body {
     font: inherit;
 }
 
+.app-remap-mode {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 12px 12px;
+    font-size: 13px;
+}
+.app-remap-mode select {
+    max-width: 70%;
+    border: 1px solid var(--outline);
+    border-radius: 8px;
+    padding: 6px;
+    color: var(--on-surface);
+    background: var(--surface);
+    font: inherit;
+}
+
 .app-card-head:active { background: var(--surface-press); }
 
 .app-icon {
@@ -345,6 +363,30 @@ body {
     font-size: 14px;
     padding: 12px 0;
 }
+
+.segmented {
+    display: flex;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    gap: 4px;
+}
+
+.segment {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--on-surface-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segment.is-active { background: var(--accent); color: var(--accent-on); }
 
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 

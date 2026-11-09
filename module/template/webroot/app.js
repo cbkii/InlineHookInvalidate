@@ -8,6 +8,8 @@ const DEFAULT_LIBRARY_NAME = "libart.so";
 const PROTECTED_PACKAGES = ["com.obbedcode.inlinehookinvalidate", "com.obbedcode.inlinehookinvalidate.webui"];
 
 let callbackSequence = 0;
+let pendingConfigWrite = Promise.resolve();
+let configReady = false;
 
 function moduleDir() {
     try {
@@ -55,29 +57,43 @@ function toast(message) {
     }, 2200);
 }
 
-const DEFAULT_METHOD = "mmap";
+const DEFAULT_METHOD = "mmap-once";
+const METHODS = ["mmap", "mmap-once", "pread"];
 
 const state = {
     enabled: false,
     libraryName: DEFAULT_LIBRARY_NAME,
     method: DEFAULT_METHOD,
     targetPackages: new Set(),
+    processModes: new Map(),
     apps: [],
     search: ""
 };
 
 function parseConfig(text) {
-    const lines = (text || "").split("\n").map((line) => line.replace(/\r$/, ""));
-    const result = { enabled: false, libraryName: DEFAULT_LIBRARY_NAME, method: DEFAULT_METHOD, targetPackages: new Set() };
-    if (lines.length > 0 && lines[0].trim().length > 0) {
-        const parts = lines[0].split(":");
-        result.enabled = (parts[0] || "").trim() === "1";
-        if (parts.length >= 2 && parts[1].trim()) result.libraryName = parts[1].trim();
-        if (parts.length >= 3 && parts[2].trim() === "pread") result.method = "pread";
+    const lines = text.split("\n").map((line) => line.replace(/\r+$/, ""));
+    const parts = lines[0].split(":");
+    if (text.includes("\0") || parts.length > 3 || !["0", "1"].includes(parts[0])
+        || (parts[2] && !METHODS.includes(parts[2]))) {
+        throw new Error("Invalid config header");
     }
-    for (let index = 1; index < lines.length; index++) {
-        const packageName = lines[index].trim();
-        if (packageName) result.targetPackages.add(packageName);
+    const result = {
+        enabled: parts[0] === "1",
+        libraryName: parts[1] || DEFAULT_LIBRARY_NAME,
+        method: parts[2] || "mmap",
+        targetPackages: new Set(),
+        processModes: new Map()
+    };
+    for (const line of lines.slice(1)) {
+        if (line.startsWith("@mode ")) {
+            const [process, method, extra] = line.slice(6).trim().split(/[ \t\r\v\f]+/);
+            if (!process || !METHODS.includes(method) || extra || result.processModes.has(process)) {
+                throw new Error("Invalid or duplicate process override");
+            }
+            result.processModes.set(process, method);
+        } else if (line) {
+            result.targetPackages.add(line);
+        }
     }
     return result;
 }
@@ -85,6 +101,7 @@ function parseConfig(text) {
 function serializeConfig() {
     const lines = [(state.enabled ? "1" : "0") + ":" + state.libraryName + ":" + state.method];
     for (const packageName of state.targetPackages) lines.push(packageName);
+    for (const [process, method] of state.processModes) lines.push("@mode " + process + " " + method);
     return lines.join("\n") + "\n";
 }
 
@@ -94,9 +111,22 @@ function setActiveMethodSegment(method) {
 }
 
 async function persistConfig() {
-    const encoded = btoa(serializeConfig());
-    const command = "mkdir -p " + CONFIG_DIR + " && printf '%s' '" + encoded + "' | base64 -d > " + CONFIG_FILE;
-    const result = await exec(command);
+    if (!configReady) {
+        toast("Config unavailable. Reload before editing.");
+        return false;
+    }
+    const bytes = new TextEncoder().encode(serializeConfig());
+    if (bytes.length > 65536) {
+        toast("Config exceeds the 64 KiB limit");
+        return false;
+    }
+    const encoded = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+    const command = "umask 077; tmp=$(mktemp " + CONFIG_DIR + "/.config.XXXXXX) || exit 1; "
+        + "trap 'rm -f \"$tmp\"' EXIT; "
+        + "printf '%s' '" + encoded + "' | base64 -d > \"$tmp\" && mv -f \"$tmp\" " + CONFIG_FILE;
+    const write = pendingConfigWrite.then(() => exec(command));
+    pendingConfigWrite = write.catch(() => {});
+    const result = await write;
     if (result.errno !== 0) {
         toast("Failed to write config: " + (result.stderr || "errno " + result.errno));
         return false;
@@ -118,7 +148,8 @@ async function ensureAppIndex(force) {
         if (check.stdout.trim() === "1") return;
     }
     const apkPath = moduleDir() + "/service.apk";
-    const command = "app_process -Djava.class.path=" + apkPath + " / " + INDEXER_CLASS + " --icons --out " + APP_INDEX_FILE;
+    const quotedPath = "'" + apkPath.replace(/'/g, "'\\''") + "'";
+    const command = "app_process -Djava.class.path=" + quotedPath + " / " + INDEXER_CLASS + " --icons --out " + APP_INDEX_FILE;
     await exec("mkdir -p " + CONFIG_DIR);
     await exec(command);
 }
@@ -129,6 +160,7 @@ async function loadEverything(forceReindex) {
         return;
     }
 
+    await pendingConfigWrite;
     await ensureAppIndex(!!forceReindex);
 
     const [indexResult, configResult] = await Promise.all([
@@ -143,11 +175,21 @@ async function loadEverything(forceReindex) {
         index = [];
     }
 
-    const parsed = parseConfig(configResult.stdout);
+    let parsed;
+    try {
+        if (configResult.errno !== 0) throw new Error("Cannot read the saved config");
+        parsed = parseConfig(configResult.stdout);
+    } catch (error) {
+        configReady = false;
+        setEmpty("Config error. " + error.message);
+        return;
+    }
+    configReady = true;
     state.enabled = parsed.enabled;
     state.libraryName = parsed.libraryName;
     state.method = parsed.method;
     state.targetPackages = parsed.targetPackages;
+    state.processModes = parsed.processModes;
 
     state.apps = index
         .filter((item) => PROTECTED_PACKAGES.indexOf(item.pkg) === -1)
@@ -203,12 +245,23 @@ function buildCard(app) {
     card.querySelector(".app-name").textContent = app.label;
     card.querySelector(".app-meta").textContent = app.packageName;
 
+    const modeRow = card.querySelector(".app-remap-mode");
+    const mode = modeRow.querySelector("select");
+    modeRow.classList.toggle("hidden", !targeted);
+    mode.value = state.processModes.get(app.packageName) || "";
+    mode.addEventListener("change", async () => {
+        if (mode.value) state.processModes.set(app.packageName, mode.value);
+        else state.processModes.delete(app.packageName);
+        if (await persistConfig()) toast("Mode saved for " + app.label);
+    });
+
     const toggle = card.querySelector(".target-toggle");
     toggle.checked = targeted;
     toggle.addEventListener("change", async () => {
         if (toggle.checked) state.targetPackages.add(app.packageName);
         else state.targetPackages.delete(app.packageName);
         card.classList.toggle("is-targeted", toggle.checked);
+        modeRow.classList.toggle("hidden", !toggle.checked);
         updateStatusSubtitle();
         if (await persistConfig()) {
             toast(toggle.checked ? "Added " + app.label : "Removed " + app.label);
@@ -259,6 +312,10 @@ function render() {
 }
 
 function openSettings() {
+    if (!configReady) {
+        toast("Config unavailable. Reload before editing.");
+        return;
+    }
     document.getElementById("settingsEnabledToggle").checked = state.enabled;
     document.getElementById("settingsLibraryInput").value = state.libraryName;
     setActiveMethodSegment(state.method);
@@ -270,8 +327,12 @@ function closeSettings() {
 }
 
 async function saveSettings() {
-    state.enabled = document.getElementById("settingsEnabledToggle").checked;
     const libraryValue = document.getElementById("settingsLibraryInput").value.trim();
+    if (libraryValue && !/^[A-Za-z0-9_.+-]+$/.test(libraryValue)) {
+        toast("Enter a library basename such as libart.so");
+        return;
+    }
+    state.enabled = document.getElementById("settingsEnabledToggle").checked;
     state.libraryName = libraryValue || DEFAULT_LIBRARY_NAME;
     const activeSegment = document.querySelector("#settingsMethodSegment .segment.is-active");
     state.method = activeSegment ? activeSegment.dataset.method : DEFAULT_METHOD;

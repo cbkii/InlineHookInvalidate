@@ -1,58 +1,49 @@
-# Invalidate Inline Hooks
+# Inline Hook Invalidate
 
-Hello, it's **ObbedCode** here with some cool stuff.
+This fork of [ObbedCode's InlineHookInvalidate](https://github.com/0bbedCode/InlineHookInvalidate)
+helps test how changes to Android's runtime library affect selected apps. It
+can restore executable code from the library file once at startup or check it
+again while an app runs. The WebUI lets you set a default mode and choose a
+different mode for each selected app. The module asks the Zygisk loader to
+unload it when a process does not need it or after a one-shot run.
 
-I was bored, so I quickly whipped up a couple of projects in my spare time on my relax day. Took about 10 minutes, nothing crazy. This is the same thing LSPosed has in their system under **Settings -> "Invalidate inline Hooks"**.
-To be Clear this is not SPOOFING, this is more so Invalidating Inline Hooks!
+## Fork build v1.1.0
 
-## What This Does
+The module asks the Zygisk provider to unload its library for processes it
+skips, including system_server, child zygotes, denylisted processes and
+non-matching process names. Configuration is root-owned and saved atomically.
+Settings apply when a process starts.
 
-LSPosed-like frameworks (including Frida) make modifications to `libart.so` to do their bidding. Those modifications applied to `libart.so` are obviously detectable via a CRC hash, i.e. hash the `libart.so` loaded in memory and compare it against the one on disk.
+| Mode | Behaviour |
+| --- | --- |
+| One-shot mmap | Runs once after app specialisation, then requests module unload. Fresh installs default to this mode with remapping disabled. |
+| Continuous mmap | Keeps the legacy worker and checks the remapped code every 100 ms. An existing config with no method field retains this mode. |
+| Legacy pread | Keeps the legacy write-and-restore mode for existing configurations. |
 
-All this module does is basically reload `libart.so` back into memory from disk, hence the LSPosed name **"Invalidate inline Hooks"**.
+An update preserves the configured targets and default mode. Each targeted
+app in the WebUI can now override that default. Set the global default to
+**One-shot mmap** and choose **Continuous mmap** for a target that needs
+it. Restart the target after saving. **Use default** removes the override.
 
-In short: this module makes the integrity checks on the library loaded in memory match the hash of the one found on disk, so the in-memory library looks clean and safe. It will invalidate any hooks or patches made to the in-memory library, but ART-style hooks from a module still remain, since those are applied a bit differently and don't rely 100% on patching `libart.so`.
+Settings match exact process names. In a manually edited config, keep each
+target on its own line and add a separate directive such as
+`@mode com.example.app mmap`. A directive alone never targets a process.
+Add a separate target line for a process suffix such as `:remote`. On rollback
+to alpha1, the original target lines still work with the global mode.
 
-That's all this module does. If something is still being detected or not working, that is out of scope.
+One-shot runs at startup. Later changes require continuous mode. The Zygisk
+loader controls whether the unload request takes effect. Remapping executable ART pages remains experimental. Record the same
+process before and after switching modes, check its functionality, and compare
+its executable mappings and `InlineHookInvalidate` log entries. A mapping can
+also belong to the provider or another module.
 
-> **Note:** Sometimes it does not spoof in time. Keep that in mind - it is possible a timed integrity check may catch it.
+The fork checks the address, file offset and file identity before restoring
+a segment. It skips unsupported mappings. The legacy in-place mode needs
+permission to write executable memory. Changes can affect app or hook
+behaviour, so test each target after changing modes.
 
-## Does This Break Your Module's Hooks?
-
-You may wonder if this affects the ART method hooks deployed from LSPosed-like frameworks, making it a feature that isn't useful because it destroys your hooks.
-
-The answer is **no**. ART method hooks are still applied - they are applied in a certain way. Either way, **only** the hooks/patches on `libart.so` are invalidated or removed.
-
-Here is a list of symbols that LSPosed will hook:
-
-```
-art::ClassLinker::FixupStaticTrampolines
-art::ClassLinker::RegisterNative
-art::ClassLinker::UnregisterNative
-art::ClassLinker::VisiblyInitializedCallback::AdjustThreadVisibilityCounter
-art::instrumentation::Instrumentation::InstallStubsForClass
-art::jit::Jit::MapBootImageMethods
-art::jit::Jit::AddCompileTask
-art::jit::Jit::EnqueueOptimizedCompilation
-art::jit::JitCodeCache::GarbageCollectCache
-art::mirror::Class::SetStatus
-art::FetchStackTraceVisitor::VisitFrame
-art::BuildInternalStackTraceVisitor::VisitFrame
-```
-
-Once LSPosed applies the ART method hooks (i.e. applies your hooks from your module), then in theory the modifications to `libart.so` are no longer needed.
-
-As LSPosed itself warns about this feature:
-
-> Cleanup libart.so for listed apps. This will cause random malfunctions and crashes. Use only when unable to open specific apps.
-
-From my use case, it causes no issues.
-
-## Scope
-
-This module has **one purpose**, and it does that one job - that is all. Any other issues or detections are unrelated. So please don't waste your time telling me to check out some app or that some app is detecting something.
-
----
+The [upstream README](https://github.com/0bbedCode/InlineHookInvalidate)
+describes the original ART remap and its limits.
 
 # Detecting ART Hooks
 
@@ -174,6 +165,6 @@ Now, to be fair, his module barely worked - the UI wasn't all there and couldn't
 
 There may be a couple of other ways, but this is proof in general that such things can still be easily detected.
 
-Sure, an integrity check on the in-memory library against the one on disk will always pass, but that doesn't mean ART method hooks can't still be detected. There are more ways. Don't listen to anyone who says otherwise - they may be a vibe coder, or someone who loves Kids, I'm not sure.
+An executable-page comparison covers only the pages and timing of that check. ART method hooks can still be detected. There are more ways. Don't listen to anyone who says otherwise - they may be a vibe coder, or someone who loves Kids, I'm not sure.
 
 Enjoy your day! Much love, ObbedCode <3
