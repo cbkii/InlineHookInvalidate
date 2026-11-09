@@ -58,7 +58,7 @@
             <div class="text-field"><input id="settingsLibraryInput" class="value-input" type="text" placeholder="libart.so" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
         </label>
         <div class="dialog-field">
-            <span>Remap method</span>
+            <span>Default remap mode</span>
             <div class="segmented" id="settingsMethodSegment">
                 <button type="button" class="segment" data-method="mmap-once">One-shot mmap</button>
                 <button type="button" class="segment" data-method="mmap">Continuous mmap</button>
@@ -87,6 +87,15 @@
                 <span class="slider"></span>
             </label>
         </button>
+        <label class="app-remap-mode hidden">
+            <span>Remap mode</span>
+            <select>
+                <option value="">Use default</option>
+                <option value="mmap-once">One-shot mmap</option>
+                <option value="mmap">Continuous mmap</option>
+                <option value="pread">Legacy pread</option>
+            </select>
+        </label>
     </section>
 </template>
 

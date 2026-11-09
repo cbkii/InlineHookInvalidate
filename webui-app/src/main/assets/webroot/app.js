@@ -57,29 +57,36 @@ function toast(message) {
 }
 
 const DEFAULT_METHOD = "mmap-once";
+const METHODS = ["mmap", "mmap-once", "pread"];
 
 const state = {
     enabled: false,
     libraryName: DEFAULT_LIBRARY_NAME,
     method: DEFAULT_METHOD,
     targetPackages: new Set(),
+    processModes: new Map(),
     apps: [],
     search: ""
 };
 
 function parseConfig(text) {
     const lines = (text || "").split("\n").map((line) => line.replace(/\r$/, ""));
-    const result = { enabled: false, libraryName: DEFAULT_LIBRARY_NAME, method: DEFAULT_METHOD, targetPackages: new Set() };
+    const result = { enabled: false, libraryName: DEFAULT_LIBRARY_NAME, method: DEFAULT_METHOD, targetPackages: new Set(), processModes: new Map() };
     if (lines.length > 0 && lines[0].trim().length > 0) {
         const parts = lines[0].split(":");
         result.enabled = (parts[0] || "").trim() === "1";
         if (parts.length >= 2 && parts[1].trim()) result.libraryName = parts[1].trim();
         const savedMethod = parts[2] || "mmap";
-        if (["mmap", "mmap-once", "pread"].includes(savedMethod)) result.method = savedMethod;
+        if (METHODS.includes(savedMethod)) result.method = savedMethod;
     }
     for (let index = 1; index < lines.length; index++) {
         const packageName = lines[index].trim();
-        if (packageName) result.targetPackages.add(packageName);
+        if (packageName.startsWith("@mode ")) {
+            const [process, method, extra] = packageName.slice(6).split(/\s+/);
+            if (process && METHODS.includes(method) && !extra) result.processModes.set(process, method);
+        } else if (packageName) {
+            result.targetPackages.add(packageName);
+        }
     }
     return result;
 }
@@ -87,6 +94,7 @@ function parseConfig(text) {
 function serializeConfig() {
     const lines = [(state.enabled ? "1" : "0") + ":" + state.libraryName + ":" + state.method];
     for (const packageName of state.targetPackages) lines.push(packageName);
+    for (const [process, method] of state.processModes) lines.push("@mode " + process + " " + method);
     return lines.join("\n") + "\n";
 }
 
@@ -154,6 +162,7 @@ async function loadEverything(forceReindex) {
     state.libraryName = parsed.libraryName;
     state.method = parsed.method;
     state.targetPackages = parsed.targetPackages;
+    state.processModes = parsed.processModes;
 
     state.apps = index
         .filter((item) => PROTECTED_PACKAGES.indexOf(item.pkg) === -1)
@@ -209,12 +218,23 @@ function buildCard(app) {
     card.querySelector(".app-name").textContent = app.label;
     card.querySelector(".app-meta").textContent = app.packageName;
 
+    const modeRow = card.querySelector(".app-remap-mode");
+    const mode = modeRow.querySelector("select");
+    modeRow.classList.toggle("hidden", !targeted);
+    mode.value = state.processModes.get(app.packageName) || "";
+    mode.addEventListener("change", async () => {
+        if (mode.value) state.processModes.set(app.packageName, mode.value);
+        else state.processModes.delete(app.packageName);
+        if (await persistConfig()) toast("Mode saved for " + app.label);
+    });
+
     const toggle = card.querySelector(".target-toggle");
     toggle.checked = targeted;
     toggle.addEventListener("change", async () => {
         if (toggle.checked) state.targetPackages.add(app.packageName);
         else state.targetPackages.delete(app.packageName);
         card.classList.toggle("is-targeted", toggle.checked);
+        modeRow.classList.toggle("hidden", !toggle.checked);
         updateStatusSubtitle();
         if (await persistConfig()) {
             toast(toggle.checked ? "Added " + app.label : "Removed " + app.label);

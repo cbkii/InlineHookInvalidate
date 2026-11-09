@@ -1,0 +1,20 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const source = fs.readFileSync("module/template/webroot/app.js", "utf8");
+vm.runInNewContext(source.replace(/bindControls\(\);\s*loadEverything\(false\);\s*$/, "") + `
+    const old = parseConfig("1:libart.so\\ncom.example\\ncom.example:remote\\n");
+    assert.equal(old.method, "mmap");
+    assert.equal(old.targetPackages.size, 2);
+    assert.equal(old.processModes.size, 0);
+    Object.assign(state, old);
+    state.method = "mmap-once";
+    state.processModes.set("com.example", "mmap");
+    const saved = serializeConfig();
+    assert.equal(saved, "1:libart.so:mmap-once\\ncom.example\\ncom.example:remote\\n@mode com.example mmap\\n");
+    const restored = parseConfig(saved);
+    assert.equal(restored.method, "mmap-once");
+    assert.equal(restored.processModes.get("com.example"), "mmap");
+    assert.equal(restored.processModes.has("com.example:remote"), false);
+    assert.equal(restored.targetPackages.size, 2);
+`, {assert});

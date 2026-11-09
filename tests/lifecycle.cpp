@@ -78,11 +78,24 @@ int main() {
     ModuleConfiguration config;
     assert(parseModuleConfiguration("1:libart.so\r\ncom.example\r\n", &config));
     assert(config.enabled && config.method == RemapMethod::Mmap);
-    assert(targetListContainsProcess(config.targetPackages, "com.example"));
-    assert(!targetListContainsProcess(config.targetPackages, "com.example:remote"));
+    assert(selectedMethod(config, "com.example") == RemapMethod::Mmap);
+    assert(!selectedMethod(config, "com.example:remote"));
     assert(parseModuleConfiguration("1:libart.so:pread\n", &config));
     assert(config.method == RemapMethod::MprotectPread);
     assert(!parseModuleConfiguration("1:libart.so:unknown\n", &config));
+
+    config = {};
+    assert(parseModuleConfiguration(
+        "1:libart.so:mmap-once\r\ncom.example\r\ncom.other\r\n"
+        "@mode com.example mmap\r\n@mode com.example:remote pread\r\n", &config));
+    assert(selectedMethod(config, "com.example") == RemapMethod::Mmap);
+    assert(selectedMethod(config, "com.other") == RemapMethod::MmapOnce);
+    assert(!selectedMethod(config, "com.example:remote")); // An override cannot select a process.
+    config = {};
+    assert(!parseModuleConfiguration("1:libart.so\n@mode com.example invalid\n", &config));
+    config = {};
+    assert(!parseModuleConfiguration(
+        "1:libart.so\n@mode com.example mmap\n@mode com.example pread\n", &config));
 
     runApp("com.example", false); // Missing config
     writeConfig("0:libart.so:mmap-once\ncom.example\n");
@@ -102,7 +115,7 @@ int main() {
 
     // Exercise the successful mmap path without modifying a running library.
     const auto path = configDir + "/test.so";
-    writeConfig("1:libart.so:mmap-once\ncom.example\n");
+    writeConfig("1:libart.so:mmap\ncom.example\n@mode com.example mmap-once\n");
     const auto pageSize = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
     std::string fileBytes(pageSize, 'A');
     const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);

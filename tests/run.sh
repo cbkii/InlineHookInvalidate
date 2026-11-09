@@ -13,4 +13,5 @@ else
 fi
 sh -n module/template/customize.sh
 node --check module/template/webroot/app.js
+node tests/webui.cjs
 diff -r module/template/webroot webui-app/src/main/assets/webroot

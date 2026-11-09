@@ -5,6 +5,8 @@
 #include <cstring>
 #include <fcntl.h>
 #include <link.h>
+#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <sys/mman.h>
@@ -33,7 +35,15 @@ struct ModuleConfiguration {
     std::string libraryName = kDefaultLibraryName;
     RemapMethod method = RemapMethod::Mmap;
     std::vector<std::string> targetPackages;
+    std::map<std::string, RemapMethod, std::less<>> processModes;
 };
+
+std::optional<RemapMethod> parseRemapMethod(const std::string &name) {
+    if (name == "mmap") return RemapMethod::Mmap;
+    if (name == "mmap-once") return RemapMethod::MmapOnce;
+    if (name == "pread") return RemapMethod::MprotectPread;
+    return std::nullopt;
+}
 
 std::string trimLineEnding(const std::string &line) {
     std::size_t end = line.size();
@@ -74,20 +84,25 @@ bool parseModuleConfiguration(const std::string &contents, ModuleConfiguration *
     configuration->enabled = headerParts[0] == "1";
     if (headerParts.size() >= 2 && !headerParts[1].empty())
         configuration->libraryName = headerParts[1];
-    if (headerParts.size() == 3) {
-        if (headerParts[2] == "mmap-once")
-            configuration->method = RemapMethod::MmapOnce;
-        else if (headerParts[2] == "pread")
-            configuration->method = RemapMethod::MprotectPread;
-        else if (!headerParts[2].empty() && headerParts[2] != "mmap")
-            return false;
+    if (headerParts.size() == 3 && !headerParts[2].empty()) {
+        auto method = parseRemapMethod(headerParts[2]);
+        if (!method) return false;
+        configuration->method = *method;
     }
 
-    std::string packageLine;
-    while (std::getline(configurationFile, packageLine)) {
-        packageLine = trimLineEnding(packageLine);
-        if (!packageLine.empty()) {
-            configuration->targetPackages.push_back(packageLine);
+    std::string line;
+    while (std::getline(configurationFile, line)) {
+        line = trimLineEnding(line);
+        if (line.rfind("@mode ", 0) == 0) {
+            std::istringstream directive(line.substr(6));
+            std::string process, mode, extra;
+            if (!(directive >> process >> mode) || directive >> extra)
+                return false;
+            auto method = parseRemapMethod(mode);
+            if (!method || !configuration->processModes.emplace(process, *method).second)
+                return false;
+        } else if (!line.empty()) {
+            configuration->targetPackages.push_back(line);
         }
     }
     return true;
@@ -122,13 +137,14 @@ bool readModuleConfiguration(zygisk::Api *api, ModuleConfiguration *configuratio
     return count == 0 && parseModuleConfiguration(contents, configuration);
 }
 
-bool targetListContainsProcess(const std::vector<std::string> &targetPackages, const std::string &processName) {
-    for (const std::string &packageName : targetPackages) {
-        if (packageName == processName) {
-            return true;
+std::optional<RemapMethod> selectedMethod(const ModuleConfiguration &configuration, const char *process) {
+    for (const auto &target : configuration.targetPackages) {
+        if (target == process) {
+            auto override = configuration.processModes.find(process);
+            return override == configuration.processModes.end() ? configuration.method : override->second;
         }
     }
-    return false;
+    return std::nullopt;
 }
 
 struct ExecutableSegment {
@@ -276,7 +292,7 @@ public:
         selected = false;
         configuration = {};
         if (!shouldRun(arguments) || !readModuleConfiguration(api, &configuration) ||
-            !configuration.enabled || !isSelected(arguments->nice_name)) {
+            !configuration.enabled || !methodForProcess(arguments->nice_name)) {
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
@@ -286,16 +302,17 @@ public:
     void postAppSpecialize(const zygisk::AppSpecializeArgs *arguments) override {
         if (!selected)
             return;
-        if (arguments->nice_name == nullptr || !isSelected(arguments->nice_name)) {
+        auto method = methodForProcess(arguments->nice_name);
+        if (!method) {
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
-        if (configuration.method == RemapMethod::MmapOnce) {
-            runRemap(configuration.libraryName, configuration.method);
+        if (*method == RemapMethod::MmapOnce) {
+            runRemap(configuration.libraryName, *method);
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
-        std::thread(runRemap, configuration.libraryName, configuration.method).detach();
+        std::thread(runRemap, configuration.libraryName, *method).detach();
     }
 
 private:
@@ -305,14 +322,16 @@ private:
                !(api->getFlags() & zygisk::PROCESS_ON_DENYLIST);
     }
 
-    bool isSelected(jstring niceName) const {
+    std::optional<RemapMethod> methodForProcess(jstring niceName) const {
+        if (niceName == nullptr)
+            return std::nullopt;
         const char *processNameCharacters = environment->GetStringUTFChars(niceName, nullptr);
         if (processNameCharacters == nullptr)
-            return false;
+            return std::nullopt;
 
-        const bool match = targetListContainsProcess(configuration.targetPackages, processNameCharacters);
+        const auto method = selectedMethod(configuration, processNameCharacters);
         environment->ReleaseStringUTFChars(niceName, processNameCharacters);
-        return match;
+        return method;
     }
 
     zygisk::Api *api = nullptr;

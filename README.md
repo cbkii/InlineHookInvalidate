@@ -1,6 +1,6 @@
 # Invalidate Inline Hooks
 
-## Fork build v1.1-alpha1
+## Fork build v1.1-alpha2
 
 The module asks the Zygisk provider to unload its library for processes it
 skips, including system_server, child zygotes, denylisted processes and
@@ -13,9 +13,18 @@ Settings apply when a process starts.
 | Continuous mmap | Keeps the legacy worker and checks the remapped code every 100 ms. An existing config with no method field retains this mode. |
 | Legacy pread | Keeps the legacy write-and-restore mode for existing configurations. |
 
-An update preserves the configured targets and mode. For an existing install,
-select **One-shot mmap** in the WebUI and restart the target to try it. A process
-suffix such as `:remote` must be listed explicitly. One-shot cannot restore
+An update preserves the configured targets and default mode. Each targeted
+app in the WebUI can now override that default. Set the global default to
+**One-shot mmap** and choose **Continuous mmap** on the myGov card when
+needed. Restart the target after saving. **Use default** removes the override.
+
+Settings match exact process names. In a manually edited config, keep each
+target on its own line and add a separate directive such as
+`@mode au.gov.mygov.mygovapp mmap`. A directive alone never targets a process.
+Add a separate target line for a process suffix such as `:remote`. On rollback
+to alpha1, the original target lines still work with the global mode.
+
+One-shot cannot restore
 patches applied after its callback, and the provider must honour the unload
 request. Remapping executable ART pages remains experimental. Record the same
 process before and after switching modes, check its functionality, and compare
