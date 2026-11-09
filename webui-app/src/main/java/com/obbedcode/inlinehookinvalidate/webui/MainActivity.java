@@ -133,16 +133,17 @@ public final class MainActivity extends Activity {
     }
 
     private static String readAll(java.io.InputStream stream) throws Exception {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-        StringBuilder builder = new StringBuilder();
-        String line;
-        boolean first = true;
-        while ((line = reader.readLine()) != null) {
-            if (!first) builder.append('\n');
-            builder.append(line);
-            first = false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
+            StringBuilder builder = new StringBuilder();
+            String line;
+            boolean first = true;
+            while ((line = reader.readLine()) != null) {
+                if (!first) builder.append('\n');
+                builder.append(line);
+                first = false;
+            }
+            return builder.toString();
         }
-        return builder.toString();
     }
 
     private final class RootBridge {
