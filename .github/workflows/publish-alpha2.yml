@@ -1,0 +1,108 @@
+name: Qualify and publish v1.1-alpha2
+
+on:
+  push:
+    branches: [codex/publish-v1.1-alpha2]
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: d069dcd6d9c3dd77118a93517c9468398972fc7b
+          persist-credentials: false
+      - name: Check scope and lifecycle
+        run: sh tests/run.sh
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned Android build components
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.1.13356709'
+      - name: Build Android module ZIP
+        run: sh gradlew assembleModuleZip
+      - name: Verify installable files
+        run: |
+          zip=release/InlineHookInvalidate.zip
+          unzip -t "$zip"
+          for file in module.prop customize.sh zygisk/arm64-v8a.so service.apk webroot/app.js META-INF/com/google/android/update-binary; do
+            unzip -p "$zip" "$file" > "$RUNNER_TEMP/ihi-member"
+            test -s "$RUNNER_TEMP/ihi-member"
+          done
+          sha256sum "$zip" > release/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InlineHookInvalidate-${{ github.sha }}
+          path: |
+            release/InlineHookInvalidate.zip
+            release/SHA256SUMS
+          if-no-files-found: error
+  publish:
+    needs: module
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      TAG: v1.1-alpha2
+      SOURCE_SHA: d069dcd6d9c3dd77118a93517c9468398972fc7b
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: InlineHookInvalidate-${{ github.sha }}
+          path: candidate
+      - name: Verify and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::The release or tag already exists"
+            exit 1
+          fi
+          read -r expected original < SHA256SUMS
+          [[ "$original" = release/InlineHookInvalidate.zip && "$expected" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$expected" InlineHookInvalidate.zip | sha256sum -c -
+          unzip -tq InlineHookInvalidate.zip
+          unzip -p InlineHookInvalidate.zip module.prop > module.prop
+          grep -Fx 'id=inline_hook_invalidate' module.prop
+          grep -Fx 'version=v1.1-alpha2' module.prop
+          grep -Fx 'versionCode=3' module.prop
+          asset=InlineHookInvalidate-v1.1-alpha2.zip
+          mv InlineHookInvalidate.zip "$asset"
+          sha256sum "$asset" > SHA256SUMS
+
+          cat > notes.md <<'EOF'
+          Targeted apps can now override the default remap mode in the WebUI.
+          Set the default to **One-shot mmap** and select **Continuous mmap** on the myGov card.
+          Existing targets and their global mode are preserved on upgrade.
+
+          This is a manual-install alpha. Host tests and ZIP checks passed. Pixel 9a runtime validation of mixed mode is pending.
+          Install the ZIP through your root manager and reboot. If an app stops working, restore its previous mode and relaunch it. To roll back the module, disable it and reboot.
+          EOF
+          gh release create "$TAG" "$asset" SHA256SUMS --target "$SOURCE_SHA" \
+            --title 'Inline Hook Invalidate v1.1-alpha2' --notes-file notes.md --draft --prerelease --latest=false
+          gh release view "$TAG" --json isDraft,isPrerelease,targetCommitish,assets |
+            jq -e --arg sha "$SOURCE_SHA" --arg zip "$asset" '
+              .isDraft and .isPrerelease and .targetCommitish == $sha and
+              ([.assets[].name] | sort) == ([$zip, "SHA256SUMS"] | sort)
+            ' >/dev/null
+          gh release download "$TAG" --dir "$RUNNER_TEMP/draft-check"
+          (cd "$RUNNER_TEMP/draft-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/draft-check/SHA256SUMS"
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' | grep -Fx "$SOURCE_SHA"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/release-check"
+          (cd "$RUNNER_TEMP/release-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/release-check/SHA256SUMS"
