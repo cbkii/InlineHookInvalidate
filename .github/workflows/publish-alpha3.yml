@@ -1,0 +1,118 @@
+name: Qualify and publish v1.1-alpha3
+
+on:
+  push:
+    branches: [codex/publish-v1.1-alpha3]
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: b83725bfa77f3ffe9337c5d370d01466f2d41043
+          persist-credentials: false
+      - name: Check scope and lifecycle
+        run: sh tests/run.sh
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned Android build components
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0' 'ndk;28.1.13356709'
+      - name: Build Android module ZIP
+        run: sh gradlew assembleModuleZip :webui-app:assembleDebug
+      - name: Verify installable files
+        run: |
+          zip=release/InlineHookInvalidate.zip
+          unzip -t "$zip"
+          for file in module.prop customize.sh zygisk/arm64-v8a.so zygisk/armeabi-v7a.so zygisk/x86.so zygisk/x86_64.so service.apk webroot/app.js META-INF/com/google/android/update-binary; do
+            unzip -p "$zip" "$file" > "$RUNNER_TEMP/ihi-member"
+            test -s "$RUNNER_TEMP/ihi-member"
+          done
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -p "$zip" "zygisk/$abi.so" > "$RUNNER_TEMP/ihi-$abi.so"
+            readelf -hW "$RUNNER_TEMP/ihi-$abi.so"
+            case "$abi" in
+              arm64-v8a|x86_64)
+                readelf -lW "$RUNNER_TEMP/ihi-$abi.so" | awk '$1=="LOAD"{seen=1; if ($NF!="0x4000" && $NF!="0x10000") bad=1} END{exit !seen || bad}' ;;
+            esac
+          done
+          sha256sum "$zip" > release/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InlineHookInvalidate-${{ github.sha }}
+          path: |
+            release/InlineHookInvalidate.zip
+            release/SHA256SUMS
+          if-no-files-found: error
+  publish:
+    needs: module
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      TAG: v1.1-alpha3
+      SOURCE_SHA: b83725bfa77f3ffe9337c5d370d01466f2d41043
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: InlineHookInvalidate-${{ github.sha }}
+          path: candidate
+      - name: Verify and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::The release or tag already exists"
+            exit 1
+          fi
+          read -r expected original < SHA256SUMS
+          [[ "$original" = release/InlineHookInvalidate.zip && "$expected" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$expected" InlineHookInvalidate.zip | sha256sum -c -
+          unzip -tq InlineHookInvalidate.zip
+          unzip -p InlineHookInvalidate.zip module.prop > module.prop
+          grep -Fx 'id=inline_hook_invalidate' module.prop
+          grep -Fx 'version=v1.1-alpha3' module.prop
+          grep -Fx 'versionCode=4' module.prop
+          asset=InlineHookInvalidate-v1.1-alpha3.zip
+          mv InlineHookInvalidate.zip "$asset"
+          sha256sum "$asset" > SHA256SUMS
+
+          cat > notes.md <<'EOF'
+          This alpha verifies that executable pages belong to the expected file before restoring them.
+          It skips unsupported mappings, avoids writing unchanged code and improves failure handling in both remap modes.
+          The WebUI preserves exact process names and blocks saves when it cannot read the existing configuration.
+          The standalone WebUI limits navigation to bundled local content.
+
+          Existing targets, default mode and per-process overrides are preserved on upgrade.
+          Host tests and ZIP checks passed. Runtime qualification on physical Android devices remains open.
+          Install through your root manager and reboot. If a target stops working, restore its previous mode or disable the module and reboot.
+          EOF
+          gh release create "$TAG" "$asset" SHA256SUMS --target "$SOURCE_SHA" \
+            --title 'Inline Hook Invalidate v1.1-alpha3' --notes-file notes.md --draft --prerelease --latest=false
+          gh release view "$TAG" --json isDraft,isPrerelease,targetCommitish,assets |
+            jq -e --arg sha "$SOURCE_SHA" --arg zip "$asset" '
+              .isDraft and .isPrerelease and .targetCommitish == $sha and
+              ([.assets[].name] | sort) == ([$zip, "SHA256SUMS"] | sort)
+            ' >/dev/null
+          gh release download "$TAG" --dir "$RUNNER_TEMP/draft-check"
+          (cd "$RUNNER_TEMP/draft-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/draft-check/SHA256SUMS"
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' | grep -Fx "$SOURCE_SHA"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/release-check"
+          (cd "$RUNNER_TEMP/release-check" && sha256sum -c SHA256SUMS)
+          cmp SHA256SUMS "$RUNNER_TEMP/release-check/SHA256SUMS"
